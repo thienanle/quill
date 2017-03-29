@@ -59,6 +59,7 @@
     "karma-jasmine": "^1.1.0",
     "karma-sauce-launcher": "^1.1.0",
     "lodash": "^4.17.4",
+    "mutationobserver-shim": "^0.3.2",
     "style-loader": "~0.14.1",
     "stylus": "~0.54.5",
     "stylus-loader": "^3.0.1",

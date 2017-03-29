@@ -34,7 +34,7 @@ module.exports = function(env) {
   let config = {
     context: path.resolve(__dirname, '..'),
     entry: {
-      'quill.js': ['./quill.js'],
+      'quill.js': ['mutationobserver-shim', './quill.js'],
       'quill.core.js': ['./core.js'],
       'quill.core': './assets/core.styl',
       'quill.bubble': './assets/bubble.styl',
