@@ -1,5 +1,5 @@
 /*!
- * Quill Editor v1.2.2
+ * Quill Editor v1.2.3
  * https://quilljs.com/
  * Copyright (c) 2014, Jason Chen
  * Copyright (c) 2013, salesforce.com
@@ -79,7 +79,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /******/ 	__webpack_require__.p = "";
 /******/
 /******/ 	// Load entry module and return exports
-/******/ 	return __webpack_require__(__webpack_require__.s = 135);
+/******/ 	return __webpack_require__(__webpack_require__.s = 136);
 /******/ })
 /************************************************************************/
 /******/ ([
@@ -98,9 +98,9 @@ var block_1 = __webpack_require__(56);
 var embed_1 = __webpack_require__(57);
 var text_1 = __webpack_require__(60);
 var attributor_1 = __webpack_require__(13);
-var class_1 = __webpack_require__(30);
-var style_1 = __webpack_require__(32);
-var store_1 = __webpack_require__(31);
+var class_1 = __webpack_require__(31);
+var style_1 = __webpack_require__(33);
+var store_1 = __webpack_require__(32);
 var Registry = __webpack_require__(1);
 var Parchment = {
     Scope: Registry.Scope,
@@ -1114,7 +1114,6 @@ var Quill = function () {
 
     this.options = expandConfig(container, options);
     this.container = this.options.container;
-    this.scrollingContainer = this.options.scrollingContainer || document.body;
     if (this.container == null) {
       return debug.error('Invalid Quill container', container);
     }
@@ -1127,9 +1126,11 @@ var Quill = function () {
     this.container.__quill = this;
     this.root = this.addContainer('ql-editor');
     this.root.classList.add('ql-blank');
+    this.scrollingContainer = this.options.scrollingContainer || this.root;
     this.emitter = new _emitter4.default();
     this.scroll = _parchment2.default.create(this.root, {
       emitter: this.emitter,
+      scrollingContainer: this.scrollingContainer,
       whitelist: this.options.formats
     });
     this.editor = new _editor2.default(this.scroll);
@@ -1276,11 +1277,21 @@ var Quill = function () {
   Quill.prototype.getBounds = function getBounds(index) {
     var length = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 0;
 
+    var bounds = void 0;
     if (typeof index === 'number') {
-      return this.selection.getBounds(index, length);
+      bounds = this.selection.getBounds(index, length);
     } else {
-      return this.selection.getBounds(index.index, index.length);
+      bounds = this.selection.getBounds(index.index, index.length);
     }
+    var containerBounds = this.container.getBoundingClientRect();
+    return {
+      bottom: bounds.bottom - containerBounds.top,
+      height: bounds.height,
+      left: bounds.left - containerBounds.left,
+      right: bounds.right - containerBounds.left,
+      top: bounds.top - containerBounds.top,
+      width: bounds.width
+    };
   };
 
   Quill.prototype.getContents = function getContents() {
@@ -1510,7 +1521,7 @@ Quill.DEFAULTS = {
 Quill.events = _emitter4.default.events;
 Quill.sources = _emitter4.default.sources;
 // eslint-disable-next-line no-undef
-Quill.version =  false ? 'dev' : "1.2.2";
+Quill.version =  false ? 'dev' : "1.2.3";
 
 Quill.imports = {
   'delta': _quillDelta2.default,
@@ -2527,8 +2538,7 @@ var Selection = function () {
     var scrollLength = this.scroll.length();
     index = Math.min(index, scrollLength - 1);
     length = Math.min(index + length, scrollLength - 1) - index;
-    var bounds = void 0,
-        node = void 0,
+    var node = void 0,
         _scroll$leaf = this.scroll.leaf(index),
         _scroll$leaf2 = _slicedToArray(_scroll$leaf, 2),
         leaf = _scroll$leaf2[0],
@@ -2563,7 +2573,7 @@ var Selection = function () {
       offset = _leaf$position4[1];
 
       range.setEnd(node, offset);
-      bounds = range.getBoundingClientRect();
+      return range.getBoundingClientRect();
     } else {
       var side = 'left';
       var rect = void 0;
@@ -2581,22 +2591,15 @@ var Selection = function () {
         rect = leaf.domNode.getBoundingClientRect();
         if (offset > 0) side = 'right';
       }
-      bounds = {
+      return {
+        bottom: rect.top + rect.height,
         height: rect.height,
         left: rect[side],
-        width: 0,
-        top: rect.top
+        right: rect[side],
+        top: rect.top,
+        width: 0
       };
     }
-    var containerBounds = this.root.parentNode.getBoundingClientRect();
-    return {
-      left: bounds.left - containerBounds.left,
-      right: bounds.left + bounds.width - containerBounds.left,
-      top: bounds.top - containerBounds.top,
-      bottom: bounds.top + bounds.height - containerBounds.top,
-      height: bounds.height,
-      width: bounds.width
-    };
   };
 
   Selection.prototype.getNativeRange = function getNativeRange() {
@@ -2672,18 +2675,27 @@ var Selection = function () {
     if (range == null) return;
     var bounds = this.getBounds(range.index, range.length);
     if (bounds == null) return;
-    if (this.root.offsetHeight < bounds.bottom) {
-      var _scroll$line = this.scroll.line(Math.min(range.index + range.length, this.scroll.length() - 1)),
-          _scroll$line2 = _slicedToArray(_scroll$line, 1),
-          line = _scroll$line2[0];
+    var limit = this.scroll.length() - 1;
 
-      this.root.scrollTop = line.domNode.offsetTop + line.domNode.offsetHeight - this.root.offsetHeight;
-    } else if (bounds.top < 0) {
-      var _scroll$line3 = this.scroll.line(Math.min(range.index, this.scroll.length() - 1)),
-          _scroll$line4 = _slicedToArray(_scroll$line3, 1),
-          _line = _scroll$line4[0];
+    var _scroll$line = this.scroll.line(Math.min(range.index, limit)),
+        _scroll$line2 = _slicedToArray(_scroll$line, 1),
+        first = _scroll$line2[0];
 
-      this.root.scrollTop = _line.domNode.offsetTop;
+    var last = first;
+    if (range.length > 0) {
+      var _scroll$line3 = this.scroll.line(Math.min(range.index + range.length, limit));
+
+      var _scroll$line4 = _slicedToArray(_scroll$line3, 1);
+
+      last = _scroll$line4[0];
+    }
+    if (first == null || last == null) return;
+    var scroller = this.scroll.scrollingContainer;
+    var scrollBounds = scroller.getBoundingClientRect();
+    if (bounds.top < scrollBounds.top) {
+      scroller.scrollTop -= scrollBounds.top - bounds.top;
+    } else if (bounds.bottom > scrollBounds.bottom) {
+      scroller.scrollTop += bounds.bottom - scrollBounds.bottom;
     }
   };
 
@@ -3126,6 +3138,7 @@ var Scroll = function (_Parchment$Scroll) {
     var _this = _possibleConstructorReturn(this, _Parchment$Scroll.call(this, domNode));
 
     _this.emitter = config.emitter;
+    _this.scrollingContainer = config.scrollingContainer;
     if (Array.isArray(config.whitelist)) {
       _this.whitelist = config.whitelist.reduce(function (whitelist, format) {
         whitelist[format] = true;
@@ -3694,7 +3707,7 @@ var __extends = (this && this.__extends) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 var linked_list_1 = __webpack_require__(61);
-var shadow_1 = __webpack_require__(33);
+var shadow_1 = __webpack_require__(34);
 var Registry = __webpack_require__(1);
 var ContainerBlot = (function (_super) {
     __extends(ContainerBlot, _super);
@@ -3939,7 +3952,7 @@ var __extends = (this && this.__extends) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 var attributor_1 = __webpack_require__(13);
-var store_1 = __webpack_require__(31);
+var store_1 = __webpack_require__(32);
 var container_1 = __webpack_require__(21);
 var Registry = __webpack_require__(1);
 var FormatBlot = (function (_super) {
@@ -4022,7 +4035,7 @@ var __extends = (this && this.__extends) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-var shadow_1 = __webpack_require__(33);
+var shadow_1 = __webpack_require__(34);
 var Registry = __webpack_require__(1);
 var LeafBlot = (function (_super) {
     __extends(LeafBlot, _super);
@@ -4387,612 +4400,11 @@ exports.default = Theme;
 
 "use strict";
 
-var __extends = (this && this.__extends) || (function () {
-    var extendStatics = Object.setPrototypeOf ||
-        ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
-        function (d, b) { for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p]; };
-    return function (d, b) {
-        extendStatics(d, b);
-        function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
-    };
-})();
-Object.defineProperty(exports, "__esModule", { value: true });
-var attributor_1 = __webpack_require__(13);
-function match(node, prefix) {
-    var className = node.getAttribute('class') || '';
-    return className.split(/\s+/).filter(function (name) {
-        return name.indexOf(prefix + "-") === 0;
-    });
-}
-var ClassAttributor = (function (_super) {
-    __extends(ClassAttributor, _super);
-    function ClassAttributor() {
-        return _super !== null && _super.apply(this, arguments) || this;
-    }
-    ClassAttributor.keys = function (node) {
-        return (node.getAttribute('class') || '').split(/\s+/).map(function (name) {
-            return name.split('-').slice(0, -1).join('-');
-        });
-    };
-    ClassAttributor.prototype.add = function (node, value) {
-        if (!this.canAdd(node, value))
-            return false;
-        this.remove(node);
-        node.classList.add(this.keyName + "-" + value);
-        return true;
-    };
-    ClassAttributor.prototype.remove = function (node) {
-        var matches = match(node, this.keyName);
-        matches.forEach(function (name) {
-            node.classList.remove(name);
-        });
-        if (node.classList.length === 0) {
-            node.removeAttribute('class');
-        }
-    };
-    ClassAttributor.prototype.value = function (node) {
-        var result = match(node, this.keyName)[0] || '';
-        var value = result.slice(this.keyName.length + 1); // +1 for hyphen
-        return this.canAdd(node, value) ? value : '';
-    };
-    return ClassAttributor;
-}(attributor_1.default));
-exports.default = ClassAttributor;
-
-
-/***/ }),
-/* 31 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", { value: true });
-var attributor_1 = __webpack_require__(13);
-var class_1 = __webpack_require__(30);
-var style_1 = __webpack_require__(32);
-var Registry = __webpack_require__(1);
-var AttributorStore = (function () {
-    function AttributorStore(domNode) {
-        this.attributes = {};
-        this.domNode = domNode;
-        this.build();
-    }
-    AttributorStore.prototype.attribute = function (attribute, value) {
-        if (value) {
-            if (attribute.add(this.domNode, value)) {
-                if (attribute.value(this.domNode) != null) {
-                    this.attributes[attribute.attrName] = attribute;
-                }
-                else {
-                    delete this.attributes[attribute.attrName];
-                }
-            }
-        }
-        else {
-            attribute.remove(this.domNode);
-            delete this.attributes[attribute.attrName];
-        }
-    };
-    AttributorStore.prototype.build = function () {
-        var _this = this;
-        this.attributes = {};
-        var attributes = attributor_1.default.keys(this.domNode);
-        var classes = class_1.default.keys(this.domNode);
-        var styles = style_1.default.keys(this.domNode);
-        attributes.concat(classes).concat(styles).forEach(function (name) {
-            var attr = Registry.query(name, Registry.Scope.ATTRIBUTE);
-            if (attr instanceof attributor_1.default) {
-                _this.attributes[attr.attrName] = attr;
-            }
-        });
-    };
-    AttributorStore.prototype.copy = function (target) {
-        var _this = this;
-        Object.keys(this.attributes).forEach(function (key) {
-            var value = _this.attributes[key].value(_this.domNode);
-            target.format(key, value);
-        });
-    };
-    AttributorStore.prototype.move = function (target) {
-        var _this = this;
-        this.copy(target);
-        Object.keys(this.attributes).forEach(function (key) {
-            _this.attributes[key].remove(_this.domNode);
-        });
-        this.attributes = {};
-    };
-    AttributorStore.prototype.values = function () {
-        var _this = this;
-        return Object.keys(this.attributes).reduce(function (attributes, name) {
-            attributes[name] = _this.attributes[name].value(_this.domNode);
-            return attributes;
-        }, {});
-    };
-    return AttributorStore;
-}());
-exports.default = AttributorStore;
-
-
-/***/ }),
-/* 32 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-var __extends = (this && this.__extends) || (function () {
-    var extendStatics = Object.setPrototypeOf ||
-        ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
-        function (d, b) { for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p]; };
-    return function (d, b) {
-        extendStatics(d, b);
-        function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
-    };
-})();
-Object.defineProperty(exports, "__esModule", { value: true });
-var attributor_1 = __webpack_require__(13);
-function camelize(name) {
-    var parts = name.split('-');
-    var rest = parts.slice(1).map(function (part) {
-        return part[0].toUpperCase() + part.slice(1);
-    }).join('');
-    return parts[0] + rest;
-}
-var StyleAttributor = (function (_super) {
-    __extends(StyleAttributor, _super);
-    function StyleAttributor() {
-        return _super !== null && _super.apply(this, arguments) || this;
-    }
-    StyleAttributor.keys = function (node) {
-        return (node.getAttribute('style') || '').split(';').map(function (value) {
-            var arr = value.split(':');
-            return arr[0].trim();
-        });
-    };
-    StyleAttributor.prototype.add = function (node, value) {
-        if (!this.canAdd(node, value))
-            return false;
-        node.style[camelize(this.keyName)] = value;
-        return true;
-    };
-    StyleAttributor.prototype.remove = function (node) {
-        node.style[camelize(this.keyName)] = '';
-        if (!node.getAttribute('style')) {
-            node.removeAttribute('style');
-        }
-    };
-    StyleAttributor.prototype.value = function (node) {
-        var value = node.style[camelize(this.keyName)];
-        return this.canAdd(node, value) ? value : '';
-    };
-    return StyleAttributor;
-}(attributor_1.default));
-exports.default = StyleAttributor;
-
-
-/***/ }),
-/* 33 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", { value: true });
-var Registry = __webpack_require__(1);
-var ShadowBlot = (function () {
-    function ShadowBlot(domNode) {
-        this.domNode = domNode;
-        this.attach();
-    }
-    Object.defineProperty(ShadowBlot.prototype, "statics", {
-        // Hack for accessing inherited static methods
-        get: function () {
-            return this.constructor;
-        },
-        enumerable: true,
-        configurable: true
-    });
-    ShadowBlot.create = function (value) {
-        if (this.tagName == null) {
-            throw new Registry.ParchmentError('Blot definition missing tagName');
-        }
-        var node;
-        if (Array.isArray(this.tagName)) {
-            if (typeof value === 'string') {
-                value = value.toUpperCase();
-                if (parseInt(value).toString() === value) {
-                    value = parseInt(value);
-                }
-            }
-            if (typeof value === 'number') {
-                node = document.createElement(this.tagName[value - 1]);
-            }
-            else if (this.tagName.indexOf(value) > -1) {
-                node = document.createElement(value);
-            }
-            else {
-                node = document.createElement(this.tagName[0]);
-            }
-        }
-        else {
-            node = document.createElement(this.tagName);
-        }
-        if (this.className) {
-            node.classList.add(this.className);
-        }
-        return node;
-    };
-    ShadowBlot.prototype.attach = function () {
-        this.domNode[Registry.DATA_KEY] = { blot: this };
-    };
-    ShadowBlot.prototype.clone = function () {
-        var domNode = this.domNode.cloneNode();
-        return Registry.create(domNode);
-    };
-    ShadowBlot.prototype.detach = function () {
-        if (this.parent != null)
-            this.parent.removeChild(this);
-        delete this.domNode[Registry.DATA_KEY];
-    };
-    ShadowBlot.prototype.deleteAt = function (index, length) {
-        var blot = this.isolate(index, length);
-        blot.remove();
-    };
-    ShadowBlot.prototype.formatAt = function (index, length, name, value) {
-        var blot = this.isolate(index, length);
-        if (Registry.query(name, Registry.Scope.BLOT) != null && value) {
-            blot.wrap(name, value);
-        }
-        else if (Registry.query(name, Registry.Scope.ATTRIBUTE) != null) {
-            var parent = Registry.create(this.statics.scope);
-            blot.wrap(parent);
-            parent.format(name, value);
-        }
-    };
-    ShadowBlot.prototype.insertAt = function (index, value, def) {
-        var blot = (def == null) ? Registry.create('text', value) : Registry.create(value, def);
-        var ref = this.split(index);
-        this.parent.insertBefore(blot, ref);
-    };
-    ShadowBlot.prototype.insertInto = function (parentBlot, refBlot) {
-        if (this.parent != null) {
-            this.parent.children.remove(this);
-        }
-        parentBlot.children.insertBefore(this, refBlot);
-        if (refBlot != null) {
-            var refDomNode = refBlot.domNode;
-        }
-        if (this.next == null || this.domNode.nextSibling != refDomNode) {
-            parentBlot.domNode.insertBefore(this.domNode, (typeof refDomNode !== 'undefined') ? refDomNode : null);
-        }
-        this.parent = parentBlot;
-    };
-    ShadowBlot.prototype.isolate = function (index, length) {
-        var target = this.split(index);
-        target.split(length);
-        return target;
-    };
-    ShadowBlot.prototype.length = function () {
-        return 1;
-    };
-    ;
-    ShadowBlot.prototype.offset = function (root) {
-        if (root === void 0) { root = this.parent; }
-        if (this.parent == null || this == root)
-            return 0;
-        return this.parent.children.offset(this) + this.parent.offset(root);
-    };
-    ShadowBlot.prototype.optimize = function () {
-        // TODO clean up once we use WeakMap
-        if (this.domNode[Registry.DATA_KEY] != null) {
-            delete this.domNode[Registry.DATA_KEY].mutations;
-        }
-    };
-    ShadowBlot.prototype.remove = function () {
-        if (this.domNode.parentNode != null) {
-            this.domNode.parentNode.removeChild(this.domNode);
-        }
-        this.detach();
-    };
-    ShadowBlot.prototype.replace = function (target) {
-        if (target.parent == null)
-            return;
-        target.parent.insertBefore(this, target.next);
-        target.remove();
-    };
-    ShadowBlot.prototype.replaceWith = function (name, value) {
-        var replacement = typeof name === 'string' ? Registry.create(name, value) : name;
-        replacement.replace(this);
-        return replacement;
-    };
-    ShadowBlot.prototype.split = function (index, force) {
-        return index === 0 ? this : this.next;
-    };
-    ShadowBlot.prototype.update = function (mutations) {
-        if (mutations === void 0) { mutations = []; }
-        // Nothing to do by default
-    };
-    ShadowBlot.prototype.wrap = function (name, value) {
-        var wrapper = typeof name === 'string' ? Registry.create(name, value) : name;
-        if (this.parent != null) {
-            this.parent.insertBefore(wrapper, this.next);
-        }
-        wrapper.appendChild(this);
-        return wrapper;
-    };
-    return ShadowBlot;
-}());
-ShadowBlot.blotName = 'abstract';
-exports.default = ShadowBlot;
-
-
-/***/ }),
-/* 34 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-var _parchment = __webpack_require__(0);
-
-var _parchment2 = _interopRequireDefault(_parchment);
-
-var _quill = __webpack_require__(6);
-
-var _quill2 = _interopRequireDefault(_quill);
-
-var _block = __webpack_require__(4);
-
-var _block2 = _interopRequireDefault(_block);
-
-var _break = __webpack_require__(17);
-
-var _break2 = _interopRequireDefault(_break);
-
-var _container = __webpack_require__(24);
-
-var _container2 = _interopRequireDefault(_container);
-
-var _cursor = __webpack_require__(25);
-
-var _cursor2 = _interopRequireDefault(_cursor);
-
-var _embed = __webpack_require__(7);
-
-var _embed2 = _interopRequireDefault(_embed);
-
-var _inline = __webpack_require__(8);
-
-var _inline2 = _interopRequireDefault(_inline);
-
-var _scroll = __webpack_require__(18);
-
-var _scroll2 = _interopRequireDefault(_scroll);
-
-var _text = __webpack_require__(12);
-
-var _text2 = _interopRequireDefault(_text);
-
-var _clipboard = __webpack_require__(45);
-
-var _clipboard2 = _interopRequireDefault(_clipboard);
-
-var _history = __webpack_require__(42);
-
-var _history2 = _interopRequireDefault(_history);
-
-var _keyboard = __webpack_require__(40);
-
-var _keyboard2 = _interopRequireDefault(_keyboard);
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-_quill2.default.register({
-  'blots/block': _block2.default,
-  'blots/block/embed': _block.BlockEmbed,
-  'blots/break': _break2.default,
-  'blots/container': _container2.default,
-  'blots/cursor': _cursor2.default,
-  'blots/embed': _embed2.default,
-  'blots/inline': _inline2.default,
-  'blots/scroll': _scroll2.default,
-  'blots/text': _text2.default,
-
-  'modules/clipboard': _clipboard2.default,
-  'modules/history': _history2.default,
-  'modules/keyboard': _keyboard2.default
-});
-
-_parchment2.default.register(_block2.default, _break2.default, _cursor2.default, _inline2.default, _scroll2.default, _text2.default);
-
-module.exports = _quill2.default;
-
-/***/ }),
-/* 35 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
 
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
-exports.AlignStyle = exports.AlignClass = exports.AlignAttribute = undefined;
-
-var _parchment = __webpack_require__(0);
-
-var _parchment2 = _interopRequireDefault(_parchment);
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-var config = {
-  scope: _parchment2.default.Scope.BLOCK,
-  whitelist: ['right', 'center', 'justify']
-};
-
-var AlignAttribute = new _parchment2.default.Attributor.Attribute('align', 'align', config);
-var AlignClass = new _parchment2.default.Attributor.Class('align', 'ql-align', config);
-var AlignStyle = new _parchment2.default.Attributor.Style('align', 'text-align', config);
-
-exports.AlignAttribute = AlignAttribute;
-exports.AlignClass = AlignClass;
-exports.AlignStyle = AlignStyle;
-
-/***/ }),
-/* 36 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", {
-  value: true
-});
-exports.BackgroundStyle = exports.BackgroundClass = undefined;
-
-var _parchment = __webpack_require__(0);
-
-var _parchment2 = _interopRequireDefault(_parchment);
-
-var _color = __webpack_require__(26);
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-var BackgroundClass = new _parchment2.default.Attributor.Class('background', 'ql-bg', {
-  scope: _parchment2.default.Scope.INLINE
-});
-var BackgroundStyle = new _color.ColorAttributor('background', 'background-color', {
-  scope: _parchment2.default.Scope.INLINE
-});
-
-exports.BackgroundClass = BackgroundClass;
-exports.BackgroundStyle = BackgroundStyle;
-
-/***/ }),
-/* 37 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", {
-  value: true
-});
-exports.DirectionStyle = exports.DirectionClass = exports.DirectionAttribute = undefined;
-
-var _parchment = __webpack_require__(0);
-
-var _parchment2 = _interopRequireDefault(_parchment);
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-var config = {
-  scope: _parchment2.default.Scope.BLOCK,
-  whitelist: ['rtl']
-};
-
-var DirectionAttribute = new _parchment2.default.Attributor.Attribute('direction', 'dir', config);
-var DirectionClass = new _parchment2.default.Attributor.Class('direction', 'ql-direction', config);
-var DirectionStyle = new _parchment2.default.Attributor.Style('direction', 'direction', config);
-
-exports.DirectionAttribute = DirectionAttribute;
-exports.DirectionClass = DirectionClass;
-exports.DirectionStyle = DirectionStyle;
-
-/***/ }),
-/* 38 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", {
-  value: true
-});
-exports.FontClass = exports.FontStyle = undefined;
-
-var _parchment = __webpack_require__(0);
-
-var _parchment2 = _interopRequireDefault(_parchment);
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-function _defaults(obj, defaults) { var keys = Object.getOwnPropertyNames(defaults); for (var i = 0; i < keys.length; i++) { var key = keys[i]; var value = Object.getOwnPropertyDescriptor(defaults, key); if (value && value.configurable && obj[key] === undefined) { Object.defineProperty(obj, key, value); } } return obj; }
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : _defaults(subClass, superClass); }
-
-var config = {
-  scope: _parchment2.default.Scope.INLINE,
-  whitelist: ['serif', 'monospace']
-};
-
-var FontClass = new _parchment2.default.Attributor.Class('font', 'ql-font', config);
-
-var FontStyleAttributor = function (_Parchment$Attributor) {
-  _inherits(FontStyleAttributor, _Parchment$Attributor);
-
-  function FontStyleAttributor() {
-    _classCallCheck(this, FontStyleAttributor);
-
-    return _possibleConstructorReturn(this, _Parchment$Attributor.apply(this, arguments));
-  }
-
-  FontStyleAttributor.prototype.value = function value(node) {
-    return _Parchment$Attributor.prototype.value.call(this, node).replace(/["']/g, '');
-  };
-
-  return FontStyleAttributor;
-}(_parchment2.default.Attributor.Style);
-
-var FontStyle = new FontStyleAttributor('font', 'font-family', config);
-
-exports.FontStyle = FontStyle;
-exports.FontClass = FontClass;
-
-/***/ }),
-/* 39 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", {
-  value: true
-});
-exports.SizeStyle = exports.SizeClass = undefined;
-
-var _parchment = __webpack_require__(0);
-
-var _parchment2 = _interopRequireDefault(_parchment);
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-var SizeClass = new _parchment2.default.Attributor.Class('size', 'ql-size', {
-  scope: _parchment2.default.Scope.INLINE,
-  whitelist: ['small', 'large', 'huge']
-});
-var SizeStyle = new _parchment2.default.Attributor.Style('size', 'font-size', {
-  scope: _parchment2.default.Scope.INLINE,
-  whitelist: ['10px', '18px', '32px']
-});
-
-exports.SizeClass = SizeClass;
-exports.SizeStyle = SizeStyle;
-
-/***/ }),
-/* 40 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", {
-  value: true
-});
+exports.SHORTKEY = exports.default = undefined;
 
 var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; };
 
@@ -5049,11 +4461,8 @@ var Keyboard = function (_Module) {
 
   Keyboard.match = function match(evt, binding) {
     binding = normalize(binding);
-    if (binding.shortKey != null && !!binding.shortKey !== evt[SHORTKEY] && !!binding[SHORTKEY] !== evt[SHORTKEY]) {
-      return false;
-    }
     if (['altKey', 'ctrlKey', 'metaKey', 'shiftKey'].some(function (key) {
-      return key != SHORTKEY && !!binding[key] !== evt[key] && binding[key] !== null;
+      return !!binding[key] !== evt[key] && binding[key] !== null;
     })) {
       return false;
     }
@@ -5468,10 +4877,617 @@ function normalize(binding) {
       return null;
     }
   }
+  if (binding.shortKey) {
+    binding[SHORTKEY] = binding.shortKey;
+    delete binding.shortKey;
+  }
   return binding;
 }
 
 exports.default = Keyboard;
+exports.SHORTKEY = SHORTKEY;
+
+/***/ }),
+/* 31 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+var __extends = (this && this.__extends) || (function () {
+    var extendStatics = Object.setPrototypeOf ||
+        ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
+        function (d, b) { for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p]; };
+    return function (d, b) {
+        extendStatics(d, b);
+        function __() { this.constructor = d; }
+        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+var attributor_1 = __webpack_require__(13);
+function match(node, prefix) {
+    var className = node.getAttribute('class') || '';
+    return className.split(/\s+/).filter(function (name) {
+        return name.indexOf(prefix + "-") === 0;
+    });
+}
+var ClassAttributor = (function (_super) {
+    __extends(ClassAttributor, _super);
+    function ClassAttributor() {
+        return _super !== null && _super.apply(this, arguments) || this;
+    }
+    ClassAttributor.keys = function (node) {
+        return (node.getAttribute('class') || '').split(/\s+/).map(function (name) {
+            return name.split('-').slice(0, -1).join('-');
+        });
+    };
+    ClassAttributor.prototype.add = function (node, value) {
+        if (!this.canAdd(node, value))
+            return false;
+        this.remove(node);
+        node.classList.add(this.keyName + "-" + value);
+        return true;
+    };
+    ClassAttributor.prototype.remove = function (node) {
+        var matches = match(node, this.keyName);
+        matches.forEach(function (name) {
+            node.classList.remove(name);
+        });
+        if (node.classList.length === 0) {
+            node.removeAttribute('class');
+        }
+    };
+    ClassAttributor.prototype.value = function (node) {
+        var result = match(node, this.keyName)[0] || '';
+        var value = result.slice(this.keyName.length + 1); // +1 for hyphen
+        return this.canAdd(node, value) ? value : '';
+    };
+    return ClassAttributor;
+}(attributor_1.default));
+exports.default = ClassAttributor;
+
+
+/***/ }),
+/* 32 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+var attributor_1 = __webpack_require__(13);
+var class_1 = __webpack_require__(31);
+var style_1 = __webpack_require__(33);
+var Registry = __webpack_require__(1);
+var AttributorStore = (function () {
+    function AttributorStore(domNode) {
+        this.attributes = {};
+        this.domNode = domNode;
+        this.build();
+    }
+    AttributorStore.prototype.attribute = function (attribute, value) {
+        if (value) {
+            if (attribute.add(this.domNode, value)) {
+                if (attribute.value(this.domNode) != null) {
+                    this.attributes[attribute.attrName] = attribute;
+                }
+                else {
+                    delete this.attributes[attribute.attrName];
+                }
+            }
+        }
+        else {
+            attribute.remove(this.domNode);
+            delete this.attributes[attribute.attrName];
+        }
+    };
+    AttributorStore.prototype.build = function () {
+        var _this = this;
+        this.attributes = {};
+        var attributes = attributor_1.default.keys(this.domNode);
+        var classes = class_1.default.keys(this.domNode);
+        var styles = style_1.default.keys(this.domNode);
+        attributes.concat(classes).concat(styles).forEach(function (name) {
+            var attr = Registry.query(name, Registry.Scope.ATTRIBUTE);
+            if (attr instanceof attributor_1.default) {
+                _this.attributes[attr.attrName] = attr;
+            }
+        });
+    };
+    AttributorStore.prototype.copy = function (target) {
+        var _this = this;
+        Object.keys(this.attributes).forEach(function (key) {
+            var value = _this.attributes[key].value(_this.domNode);
+            target.format(key, value);
+        });
+    };
+    AttributorStore.prototype.move = function (target) {
+        var _this = this;
+        this.copy(target);
+        Object.keys(this.attributes).forEach(function (key) {
+            _this.attributes[key].remove(_this.domNode);
+        });
+        this.attributes = {};
+    };
+    AttributorStore.prototype.values = function () {
+        var _this = this;
+        return Object.keys(this.attributes).reduce(function (attributes, name) {
+            attributes[name] = _this.attributes[name].value(_this.domNode);
+            return attributes;
+        }, {});
+    };
+    return AttributorStore;
+}());
+exports.default = AttributorStore;
+
+
+/***/ }),
+/* 33 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+var __extends = (this && this.__extends) || (function () {
+    var extendStatics = Object.setPrototypeOf ||
+        ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
+        function (d, b) { for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p]; };
+    return function (d, b) {
+        extendStatics(d, b);
+        function __() { this.constructor = d; }
+        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+var attributor_1 = __webpack_require__(13);
+function camelize(name) {
+    var parts = name.split('-');
+    var rest = parts.slice(1).map(function (part) {
+        return part[0].toUpperCase() + part.slice(1);
+    }).join('');
+    return parts[0] + rest;
+}
+var StyleAttributor = (function (_super) {
+    __extends(StyleAttributor, _super);
+    function StyleAttributor() {
+        return _super !== null && _super.apply(this, arguments) || this;
+    }
+    StyleAttributor.keys = function (node) {
+        return (node.getAttribute('style') || '').split(';').map(function (value) {
+            var arr = value.split(':');
+            return arr[0].trim();
+        });
+    };
+    StyleAttributor.prototype.add = function (node, value) {
+        if (!this.canAdd(node, value))
+            return false;
+        node.style[camelize(this.keyName)] = value;
+        return true;
+    };
+    StyleAttributor.prototype.remove = function (node) {
+        node.style[camelize(this.keyName)] = '';
+        if (!node.getAttribute('style')) {
+            node.removeAttribute('style');
+        }
+    };
+    StyleAttributor.prototype.value = function (node) {
+        var value = node.style[camelize(this.keyName)];
+        return this.canAdd(node, value) ? value : '';
+    };
+    return StyleAttributor;
+}(attributor_1.default));
+exports.default = StyleAttributor;
+
+
+/***/ }),
+/* 34 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+var Registry = __webpack_require__(1);
+var ShadowBlot = (function () {
+    function ShadowBlot(domNode) {
+        this.domNode = domNode;
+        this.attach();
+    }
+    Object.defineProperty(ShadowBlot.prototype, "statics", {
+        // Hack for accessing inherited static methods
+        get: function () {
+            return this.constructor;
+        },
+        enumerable: true,
+        configurable: true
+    });
+    ShadowBlot.create = function (value) {
+        if (this.tagName == null) {
+            throw new Registry.ParchmentError('Blot definition missing tagName');
+        }
+        var node;
+        if (Array.isArray(this.tagName)) {
+            if (typeof value === 'string') {
+                value = value.toUpperCase();
+                if (parseInt(value).toString() === value) {
+                    value = parseInt(value);
+                }
+            }
+            if (typeof value === 'number') {
+                node = document.createElement(this.tagName[value - 1]);
+            }
+            else if (this.tagName.indexOf(value) > -1) {
+                node = document.createElement(value);
+            }
+            else {
+                node = document.createElement(this.tagName[0]);
+            }
+        }
+        else {
+            node = document.createElement(this.tagName);
+        }
+        if (this.className) {
+            node.classList.add(this.className);
+        }
+        return node;
+    };
+    ShadowBlot.prototype.attach = function () {
+        this.domNode[Registry.DATA_KEY] = { blot: this };
+    };
+    ShadowBlot.prototype.clone = function () {
+        var domNode = this.domNode.cloneNode();
+        return Registry.create(domNode);
+    };
+    ShadowBlot.prototype.detach = function () {
+        if (this.parent != null)
+            this.parent.removeChild(this);
+        delete this.domNode[Registry.DATA_KEY];
+    };
+    ShadowBlot.prototype.deleteAt = function (index, length) {
+        var blot = this.isolate(index, length);
+        blot.remove();
+    };
+    ShadowBlot.prototype.formatAt = function (index, length, name, value) {
+        var blot = this.isolate(index, length);
+        if (Registry.query(name, Registry.Scope.BLOT) != null && value) {
+            blot.wrap(name, value);
+        }
+        else if (Registry.query(name, Registry.Scope.ATTRIBUTE) != null) {
+            var parent = Registry.create(this.statics.scope);
+            blot.wrap(parent);
+            parent.format(name, value);
+        }
+    };
+    ShadowBlot.prototype.insertAt = function (index, value, def) {
+        var blot = (def == null) ? Registry.create('text', value) : Registry.create(value, def);
+        var ref = this.split(index);
+        this.parent.insertBefore(blot, ref);
+    };
+    ShadowBlot.prototype.insertInto = function (parentBlot, refBlot) {
+        if (this.parent != null) {
+            this.parent.children.remove(this);
+        }
+        parentBlot.children.insertBefore(this, refBlot);
+        if (refBlot != null) {
+            var refDomNode = refBlot.domNode;
+        }
+        if (this.next == null || this.domNode.nextSibling != refDomNode) {
+            parentBlot.domNode.insertBefore(this.domNode, (typeof refDomNode !== 'undefined') ? refDomNode : null);
+        }
+        this.parent = parentBlot;
+    };
+    ShadowBlot.prototype.isolate = function (index, length) {
+        var target = this.split(index);
+        target.split(length);
+        return target;
+    };
+    ShadowBlot.prototype.length = function () {
+        return 1;
+    };
+    ;
+    ShadowBlot.prototype.offset = function (root) {
+        if (root === void 0) { root = this.parent; }
+        if (this.parent == null || this == root)
+            return 0;
+        return this.parent.children.offset(this) + this.parent.offset(root);
+    };
+    ShadowBlot.prototype.optimize = function () {
+        // TODO clean up once we use WeakMap
+        if (this.domNode[Registry.DATA_KEY] != null) {
+            delete this.domNode[Registry.DATA_KEY].mutations;
+        }
+    };
+    ShadowBlot.prototype.remove = function () {
+        if (this.domNode.parentNode != null) {
+            this.domNode.parentNode.removeChild(this.domNode);
+        }
+        this.detach();
+    };
+    ShadowBlot.prototype.replace = function (target) {
+        if (target.parent == null)
+            return;
+        target.parent.insertBefore(this, target.next);
+        target.remove();
+    };
+    ShadowBlot.prototype.replaceWith = function (name, value) {
+        var replacement = typeof name === 'string' ? Registry.create(name, value) : name;
+        replacement.replace(this);
+        return replacement;
+    };
+    ShadowBlot.prototype.split = function (index, force) {
+        return index === 0 ? this : this.next;
+    };
+    ShadowBlot.prototype.update = function (mutations) {
+        if (mutations === void 0) { mutations = []; }
+        // Nothing to do by default
+    };
+    ShadowBlot.prototype.wrap = function (name, value) {
+        var wrapper = typeof name === 'string' ? Registry.create(name, value) : name;
+        if (this.parent != null) {
+            this.parent.insertBefore(wrapper, this.next);
+        }
+        wrapper.appendChild(this);
+        return wrapper;
+    };
+    return ShadowBlot;
+}());
+ShadowBlot.blotName = 'abstract';
+exports.default = ShadowBlot;
+
+
+/***/ }),
+/* 35 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var _parchment = __webpack_require__(0);
+
+var _parchment2 = _interopRequireDefault(_parchment);
+
+var _quill = __webpack_require__(6);
+
+var _quill2 = _interopRequireDefault(_quill);
+
+var _block = __webpack_require__(4);
+
+var _block2 = _interopRequireDefault(_block);
+
+var _break = __webpack_require__(17);
+
+var _break2 = _interopRequireDefault(_break);
+
+var _container = __webpack_require__(24);
+
+var _container2 = _interopRequireDefault(_container);
+
+var _cursor = __webpack_require__(25);
+
+var _cursor2 = _interopRequireDefault(_cursor);
+
+var _embed = __webpack_require__(7);
+
+var _embed2 = _interopRequireDefault(_embed);
+
+var _inline = __webpack_require__(8);
+
+var _inline2 = _interopRequireDefault(_inline);
+
+var _scroll = __webpack_require__(18);
+
+var _scroll2 = _interopRequireDefault(_scroll);
+
+var _text = __webpack_require__(12);
+
+var _text2 = _interopRequireDefault(_text);
+
+var _clipboard = __webpack_require__(45);
+
+var _clipboard2 = _interopRequireDefault(_clipboard);
+
+var _history = __webpack_require__(42);
+
+var _history2 = _interopRequireDefault(_history);
+
+var _keyboard = __webpack_require__(30);
+
+var _keyboard2 = _interopRequireDefault(_keyboard);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+_quill2.default.register({
+  'blots/block': _block2.default,
+  'blots/block/embed': _block.BlockEmbed,
+  'blots/break': _break2.default,
+  'blots/container': _container2.default,
+  'blots/cursor': _cursor2.default,
+  'blots/embed': _embed2.default,
+  'blots/inline': _inline2.default,
+  'blots/scroll': _scroll2.default,
+  'blots/text': _text2.default,
+
+  'modules/clipboard': _clipboard2.default,
+  'modules/history': _history2.default,
+  'modules/keyboard': _keyboard2.default
+});
+
+_parchment2.default.register(_block2.default, _break2.default, _cursor2.default, _inline2.default, _scroll2.default, _text2.default);
+
+module.exports = _quill2.default;
+
+/***/ }),
+/* 36 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.AlignStyle = exports.AlignClass = exports.AlignAttribute = undefined;
+
+var _parchment = __webpack_require__(0);
+
+var _parchment2 = _interopRequireDefault(_parchment);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+var config = {
+  scope: _parchment2.default.Scope.BLOCK,
+  whitelist: ['right', 'center', 'justify']
+};
+
+var AlignAttribute = new _parchment2.default.Attributor.Attribute('align', 'align', config);
+var AlignClass = new _parchment2.default.Attributor.Class('align', 'ql-align', config);
+var AlignStyle = new _parchment2.default.Attributor.Style('align', 'text-align', config);
+
+exports.AlignAttribute = AlignAttribute;
+exports.AlignClass = AlignClass;
+exports.AlignStyle = AlignStyle;
+
+/***/ }),
+/* 37 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.BackgroundStyle = exports.BackgroundClass = undefined;
+
+var _parchment = __webpack_require__(0);
+
+var _parchment2 = _interopRequireDefault(_parchment);
+
+var _color = __webpack_require__(26);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+var BackgroundClass = new _parchment2.default.Attributor.Class('background', 'ql-bg', {
+  scope: _parchment2.default.Scope.INLINE
+});
+var BackgroundStyle = new _color.ColorAttributor('background', 'background-color', {
+  scope: _parchment2.default.Scope.INLINE
+});
+
+exports.BackgroundClass = BackgroundClass;
+exports.BackgroundStyle = BackgroundStyle;
+
+/***/ }),
+/* 38 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.DirectionStyle = exports.DirectionClass = exports.DirectionAttribute = undefined;
+
+var _parchment = __webpack_require__(0);
+
+var _parchment2 = _interopRequireDefault(_parchment);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+var config = {
+  scope: _parchment2.default.Scope.BLOCK,
+  whitelist: ['rtl']
+};
+
+var DirectionAttribute = new _parchment2.default.Attributor.Attribute('direction', 'dir', config);
+var DirectionClass = new _parchment2.default.Attributor.Class('direction', 'ql-direction', config);
+var DirectionStyle = new _parchment2.default.Attributor.Style('direction', 'direction', config);
+
+exports.DirectionAttribute = DirectionAttribute;
+exports.DirectionClass = DirectionClass;
+exports.DirectionStyle = DirectionStyle;
+
+/***/ }),
+/* 39 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.FontClass = exports.FontStyle = undefined;
+
+var _parchment = __webpack_require__(0);
+
+var _parchment2 = _interopRequireDefault(_parchment);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+function _defaults(obj, defaults) { var keys = Object.getOwnPropertyNames(defaults); for (var i = 0; i < keys.length; i++) { var key = keys[i]; var value = Object.getOwnPropertyDescriptor(defaults, key); if (value && value.configurable && obj[key] === undefined) { Object.defineProperty(obj, key, value); } } return obj; }
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : _defaults(subClass, superClass); }
+
+var config = {
+  scope: _parchment2.default.Scope.INLINE,
+  whitelist: ['serif', 'monospace']
+};
+
+var FontClass = new _parchment2.default.Attributor.Class('font', 'ql-font', config);
+
+var FontStyleAttributor = function (_Parchment$Attributor) {
+  _inherits(FontStyleAttributor, _Parchment$Attributor);
+
+  function FontStyleAttributor() {
+    _classCallCheck(this, FontStyleAttributor);
+
+    return _possibleConstructorReturn(this, _Parchment$Attributor.apply(this, arguments));
+  }
+
+  FontStyleAttributor.prototype.value = function value(node) {
+    return _Parchment$Attributor.prototype.value.call(this, node).replace(/["']/g, '');
+  };
+
+  return FontStyleAttributor;
+}(_parchment2.default.Attributor.Style);
+
+var FontStyle = new FontStyleAttributor('font', 'font-family', config);
+
+exports.FontStyle = FontStyle;
+exports.FontClass = FontClass;
+
+/***/ }),
+/* 40 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.SizeStyle = exports.SizeClass = undefined;
+
+var _parchment = __webpack_require__(0);
+
+var _parchment2 = _interopRequireDefault(_parchment);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+var SizeClass = new _parchment2.default.Attributor.Class('size', 'ql-size', {
+  scope: _parchment2.default.Scope.INLINE,
+  whitelist: ['small', 'large', 'huge']
+});
+var SizeStyle = new _parchment2.default.Attributor.Style('size', 'font-size', {
+  scope: _parchment2.default.Scope.INLINE,
+  whitelist: ['10px', '18px', '32px']
+});
+
+exports.SizeClass = SizeClass;
+exports.SizeStyle = SizeStyle;
 
 /***/ }),
 /* 41 */,
@@ -5734,17 +5750,17 @@ var _module = __webpack_require__(9);
 
 var _module2 = _interopRequireDefault(_module);
 
-var _align = __webpack_require__(35);
+var _align = __webpack_require__(36);
 
-var _background = __webpack_require__(36);
+var _background = __webpack_require__(37);
 
 var _color = __webpack_require__(26);
 
-var _direction = __webpack_require__(37);
+var _direction = __webpack_require__(38);
 
-var _font = __webpack_require__(38);
+var _font = __webpack_require__(39);
 
-var _size = __webpack_require__(39);
+var _size = __webpack_require__(40);
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -7805,10 +7821,11 @@ exports.default = LinkedList;
 /* 132 */,
 /* 133 */,
 /* 134 */,
-/* 135 */
+/* 135 */,
+/* 136 */
 /***/ (function(module, exports, __webpack_require__) {
 
-module.exports = __webpack_require__(34);
+module.exports = __webpack_require__(35);
 
 
 /***/ })
